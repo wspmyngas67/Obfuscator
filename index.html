@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Lua 5.1 Obfuscator — IronBrew2 Edition</title>
+<style>
+  :root{
+    --bg:#0b0f14;--panel:#111820;--panel2:#0e141b;--line:#1d2833;
+    --txt:#c9d1d9;--muted:#7d8b99;--accent:#46b3ff;--accent2:#7a5cff;
+    --ok:#3fb950;--err:#ff7b72;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);
+    color:var(--txt);min-height:100vh;padding:24px;
+  }
+  .wrap{max-width:1500px;margin:0 auto}
+  header{text-align:center;margin-bottom:22px}
+  h1{
+    margin:0;font-size:1.9rem;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  }
+  .sub{color:var(--muted);font-size:.9rem;margin-top:6px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;margin-bottom:14px;
+  }
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .row+.row{margin-top:10px}
+  button{
+    background:#18222d;color:var(--txt);border:1px solid #26313d;
+    padding:9px 16px;border-radius:7px;font-size:.9rem;cursor:pointer;
+    transition:.15s;
+  }
+  button:hover{background:#1f2b38;border-color:#334456}
+  button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
+  button.primary:hover{background:#388bfd;border-color:#388bfd}
+  button.ghost{background:transparent}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .opts{display:flex;gap:22px;flex-wrap:wrap;font-size:.9rem;color:var(--muted)}
+  .opts label{display:flex;align-items:center;gap:8px;cursor:pointer}
+  .opts input{accent-color:var(--accent)}
+  .seed{
+    background:#0a1017;border:1px solid var(--line);color:var(--txt);
+    padding:6px 10px;border-radius:6px;font-family:Consolas,monospace;
+    font-size:.85rem;width:180px;
+  }
+  .editors{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.editors{grid-template-columns:1fr}}
+  .pane{
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;display:flex;flex-direction:column;
+  }
+  .pane-h{
+    background:#0f1720;border-bottom:1px solid var(--line);padding:8px 12px;
+    font-size:.8rem;display:flex;justify-content:space-between;align-items:center;
+    color:var(--muted);letter-spacing:.5px;text-transform:uppercase;
+  }
+  textarea{
+    width:100%;min-height:520px;background:transparent;color:var(--txt);
+    border:0;padding:14px;resize:vertical;outline:none;
+    font-family:Consolas,Menlo,monospace;font-size:.83rem;line-height:1.5;
+    tab-size:2;
+  }
+  .stats{
+    display:flex;gap:22px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);
+    margin-top:12px;
+  }
+  .stats b{color:var(--accent);font-weight:600}
+  .status{
+    display:none;margin-top:14px;padding:10px 14px;border-radius:7px;
+    font-size:.9rem;border:1px solid transparent;
+  }
+  .status.ok{display:block;background:#0f2a1a;border-color:#2ea043;color:var(--ok)}
+  .status.err{display:block;background:#2d0f14;border-color:#f85149;color:var(--err)}
+  .hint{margin-left:auto;font-size:.78rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lua 5.1 Obfuscator</h1>
+    <p class="sub">Smart minify • String encryption • CF flattening • Anti-tamper • IronBrew2 VM</p>
+  </header>
+
+  <div class="card">
+    <div class="opts">
+      <label><input type="checkbox" id="oStrings" checked> String encryption</label>
+      <label><input type="checkbox" id="oNumbers" checked> Number encoding</label>
+      <label><input type="checkbox" id="oJunk" checked> Junk-code injection</label>
+      <label><input type="checkbox" id="oFlatten" checked> Control-flow flattening</label>
+      <label><input type="checkbox" id="oFake" checked> Fake decompiler prologue</label>
+      <label><input type="checkbox" id="oLoader" checked> VM-style loader</label>
+      <label><input type="checkbox" id="oStrip" checked> Strip comments</label>
+      <label><input type="checkbox" id="oZeroWS" checked> Zero-whitespace payload</label>
+      <label><input type="checkbox" id="oAnti" checked> Anti-tamper (print "dtc")</label>
+      <label><input type="checkbox" id="oVM"> IronBrew2 VM</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label style="color:var(--muted);font-size:.85rem">
+        Seed (optional)
+        <input class="seed" id="seed" placeholder="leave empty = random"/>
+      </label>
+      <span class="hint">Ctrl/⌘ + Enter to obfuscate</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="primary" id="run">Obfuscate ▶</button>
+      <button id="sample">Load sample</button>
+      <button id="copy">Copy output</button>
+      <button id="dl">Download .lua</button>
+      <button class="ghost" id="clear">Clear</button>
+    </div>
+  </div>
+
+  <div class="editors">
+    <div class="pane">
+      <div class="pane-h"><span>Source — Lua 5.1</span><span>input</span></div>
+      <textarea id="src" placeholder="-- Paste your Lua 5.1 source here..."></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><span>Obfuscated output</span><span>result</span></div>
+      <textarea id="out" readonly placeholder="-- Output appears here..."></textarea>
+    </div>
+  </div>
+
+  <div class="stats">
+    <span>Source: <b id="sSrc">0</b> bytes</span>
+    <span>Output: <b id="sOut">0</b> bytes</span>
+    <span>Ratio: <b id="sRat">—</b></span>
+    <span>Time: <b id="sTim">0</b> ms</span>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script src="vm.js"></script>
+<script src="obfuscator.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const src=$('src'),out=$('out');
+
+function status(msg,type){
+  const el=$('status');
+  el.textContent=msg;
+  el.className='status '+(type||'');
+}
+function stats(srcLen,outLen,ms){
+  $('sSrc').textContent=srcLen;
+  $('sOut').textContent=outLen;
+  $('sRat').textContent=outLen? (outLen/srcLen).toFixed(2)+'×' : '—';
+  $('sTim').textContent=ms.toFixed(1);
+}
+
+function run(){
+  const code=src.value;
+  if(!code.trim()){status('No source code.','err');return;}
+  const t0=performance.now();
+  let result;
+  try{
+    result=LuaObfuscator.obfuscate(code,{
+      encryptStrings:$('oStrings').checked,
+      encodeNumbers:$('oNumbers').checked,
+      junk:$('oJunk').checked,
+      flatten:$('oFlatten').checked,
+      fakePrologue:$('oFake').checked,
+      loader:$('oLoader').checked,
+      stripComments:$('oStrip').checked,
+      zeroWS:$('oZeroWS').checked,
+      antiTamper:$('oAnti').checked,
+      vm:$('oVM').checked,
+      seed:$('seed').value||undefined
+    });
+  }catch(e){
+    status('Error: '+e.message,'err');
+    console.error(e);
+    return;
+  }
+  const t1=performance.now();
+  out.value=result.code;
+  stats(
+    new TextEncoder().encode(code).length,
+    new TextEncoder().encode(result.code).length,
+    t1-t0
+  );
+  status('Done. Output is '+(result.code.length/code.length).toFixed(2)+'× source.','ok');
+}
+$('run').onclick=run;
+
+$('sample').onclick=()=>{
+  src.value=`-- Example
+local function greet(name)
+  print("Hello, " .. name .. "!")
+end
+
+local list = {"Alice","Bob","Charlie"}
+for i,v in ipairs(list) do
+  greet(v)
+end
+
+local secret = "hidden value"
+local n = 1234.5
+print("len:", #secret, "math:", n*2+100)
+`;
+};
+
+$('copy').onclick=async()=>{
+  if(!out.value)return;
+  try{await navigator.clipboard.writeText(out.value);status('Copied.','ok');}
+  catch{status('Copy failed.','err');}
+};
+$('dl').onclick=()=>{
+  if(!out.value)return;
+  const blob=new Blob([out.value],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='obfuscated.lua';a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('clear').onclick=()=>{
+  src.value='';out.value='';stats(0,0,0);status('');
+};
+src.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();run();}
+});
+</script>
+</body>
+</html>
