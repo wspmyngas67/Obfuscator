@@ -11,6 +11,10 @@
 (function(global){
 'use strict';
 
+// Lazy accessors — resolved at call time, so load order is fine
+function tokenize(s){ return global.LuaObfuscator.tokenize(s); }
+function needsSpace(a, b){ return global.LuaObfuscator.needsSpace(a, b); }
+function unescapeLua(s){ return global.LuaObfuscator.unescapeLua(s); }
 /* ============================================================
  * 1) LZ-style dictionary compressor  (exact port of Generator.Compress)
  * ============================================================ */
