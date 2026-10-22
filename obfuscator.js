@@ -390,29 +390,43 @@ function needsSpace(prev,cur){
 }
 
 /* ================== Anti-tamper guard ==================
- * Runs BEFORE the payload. If any check fires → print("dtc") and
- * abort (don't run payload).
+ * Obfuscated to hide the detection strings and logic.
+ * If a debugger is detected, it generates "dtc" dynamically
+ * and throws an error to kill execution immediately.
  */
 function makeGuard(r){
   const g = ()=>'g'+Math.floor(r()*1e9).toString(36);
-  const dbg = g(), lstr = g(), h = g(), info = g(), env = g(), e2 = g();
+  const dbg = g(), lstr = g(), h = g(), info = g(), env = g(), e2 = g(), str = g();
+  
+  // Dynamically generate the string "dtc" using char codes (100, 116, 99)
+  const buildStr = `local ${str}=string.char(${100+r()*0},${116+r()*0},${99+r()*0})`;
 
+  // The guard logic. 
+  // We use error() instead of return end so the script crashes immediately.
   const check =
     `local ${dbg}=rawget(_G,"debug");` +
     `local ${lstr}=rawget(_G,"loadstring") or rawget(_G,"load");` +
     `local ${env}=rawget(_G,"getfenv");` +
+    `${buildStr};` +
+    
+    // Check 1: Debug hook
     `if ${dbg} and type(${dbg}.gethook)=="function" then ` +
       `local ${h}=${dbg}.gethook();` +
-      `if ${h}~=nil then print("dtc")return end ` +
+      `if ${h}~=nil then error(${str},0) end ` +
     `end;` +
+    
+    // Check 2: Hooked loadstring
     `if ${lstr} and ${dbg} and type(${dbg}.getinfo)=="function" then ` +
       `local ${info}=${dbg}.getinfo(${lstr},"S");` +
-      `if ${info} and ${info}.what=="Lua" then print("dtc")return end ` +
+      `if ${info} and ${info}.what=="Lua" then error(${str},0) end ` +
     `end;` +
+    
+    // Check 3: Environment mismatch
     `if ${env} then local ${e2}=${env}(1);` +
-      `if ${e2} and ${e2}~=_G then print("dtc")return end ` +
+      `if ${e2} and ${e2}~=_G then error(${str},0) end ` +
     `end;`;
 
+  // Wrap in a do..end to keep it isolated
   return `do ${check} end;`;
 }
 
