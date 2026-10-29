@@ -188,21 +188,30 @@ class Compiler {
     return inst._ip;
   }
 
-  /* ---------- compile a full program ---------- */
-  compile(source){
-    // Tokenize and walk significant tokens
-    const sig = tokenize(source).filter(t => t.k !== 'ws' && t.k !== 'comment');
-    this.compileBlock(sig, 0, sig.length);
-    // Implicit return at end
-    this.emit({op:'RETURN', a:0, b:0});
-    return {
-      instructions: this.instructions,
-      constants: this.constants,
-      maxReg: this.maxReg,
-      paramCount: 0,
-      functions: this.functions,
-    };
+compile(source){
+  // Tokenize and walk significant tokens
+  const sig = tokenize(source).filter(t => t.k !== 'ws' && t.k !== 'comment');
+  this.compileBlock(sig, 0, sig.length);
+  
+  // Implicit return at end
+  this.emit({op:'RETURN', a:0, b:0});
+
+  // Patch jump targets to account for the VM's InstrPoint + 1
+  for(let i=0; i<this.instructions.length; i++){
+    const inst = this.instructions[i];
+    if(['JMP','JMPIF','FORPREP','FORLOOP'].includes(inst.op)){
+      inst.bx = inst.target + 1; 
+    }
   }
+
+  return {
+    instructions: this.instructions,
+    constants: this.constants,
+    maxReg: this.maxReg,
+    paramCount: 0,
+    functions: this.functions,
+  };
+}
 
   /* ---------- compile a block of statements ---------- */
   compileBlock(sig, start, end){
@@ -549,27 +558,25 @@ class Compiler {
         else if(sig[j].v === ')'){ depth--; if(depth === 0){ closeIdx = j; break; } }
       }
       if(closeIdx !== -1){
-        // Load function
-        const fnReg = this.alloc();
-        const localReg = this.lookup(name);
-        if(localReg !== null){
-          this.emit({op:'MOVE', a:fnReg, b:localReg});
-        }else{
-          this.emit({op:'GETG', a:fnReg, k:this.addStr(name)});
-        }
-        // Load args
-        const argStart = start + 2;
-        const args = this.splitArgs(sig, argStart, closeIdx);
-        const argRegs = [];
-        for(const [aStart, aEnd] of args){
-          argRegs.push(this.compileExpr(sig, aStart, aEnd));
-        }
-        // Emit CALL
-        const target = forcedReg !== undefined ? forcedReg : this.alloc();
-        this.emit({op:'CALL', a:target, b:fnReg, c:argRegs.length, argsStart: fnReg + 1});
-        this.free(fnReg);
-        for(const r of argRegs) this.free(r);
-        return target;
+// Load function
+const fnReg = this.alloc();
+const localReg = this.lookup(name);
+if(localReg !== null){
+  this.emit({op:'MOVE', a:fnReg, b:localReg});
+}else{
+  this.emit({op:'GETG', a:fnReg, k:this.addStr(name)});
+}
+// Load args into CONSECUTIVE registers right after fnReg
+const argStart = start + 2;
+const args = this.splitArgs(sig, argStart, closeIdx);
+for(const [aStart, aEnd] of args){
+  this.compileExpr(sig, aStart, aEnd); // allocs next reg automatically
+}
+// Emit CALL
+const target = forcedReg !== undefined ? forcedReg : this.alloc();
+this.emit({op:'CALL', a:target, b:fnReg, c:args.length});
+this.regTop = fnReg; // free fn and args
+return target;
       }
     }
 
@@ -1539,7 +1546,7 @@ function generate(source, r, opts){
   vmParts.push(`local ByteString=decompress('${encoded}');\n`);
 
   // Chunk steps (ParameterCount / Constants / Instructions / Functions)
-  vmParts.push(`local Chunk=Deserialize();do local PCount=gBits32();Chunk[4]=PCount;end;do local ConstCount=gBits32();local Consts={};for Idx=1,ConstCount do local Type=gBits8();local Cons;if Type==${ConstantMapping[1]} then Cons=(gBits8()~=0);elseif Type==${ConstantMapping[2]} then Cons=gFloat();elseif Type==${ConstantMapping[3]} then Cons=gString();end;Consts[Idx]=Cons;end;Chunk[2]=Consts;end;do for Idx=1,gBits32() do local Data1=BitXOR(gBits32(),${IXorKey1});local Data2=BitXOR(gBits32(),${IXorKey2});local Type=gBit(Data1,1,2);local Opco=gBit(Data2,1,11);local Inst={Opco,gBit(Data1,3,11),nil,nil,Data2};if Type==0 then Inst[OP_B]=gBit(Data1,12,20);Inst[OP_C]=gBit(Data1,21,29);elseif Type==1 then Inst[OP_B]=gBit(Data2,12,33);elseif Type==2 then Inst[OP_B]=gBit(Data2,12,32)-1048575;elseif Type==3 then Inst[OP_B]=gBit(Data2,12,32)-1048575;Inst[OP_C]=gBit(Data1,21,29);end;Chunk[1][Idx]=Inst;end;end;do for Idx=1,gBits32() do Chunk[3][Idx-1]=Deserialize();end;end;`);
+  vmParts.push(`local Chunk=Deserialize();do local PCount=gBits32();Chunk[4]=PCount;end;do local ConstCount=gBits32();local Consts={};for Idx=1,ConstCount do local Type=gBits8();local Cons;if Type==${ConstantMapping[1]} then Cons=(gBits8()~=0);elseif Type==${ConstantMapping[2]} then Cons=gFloat();elseif Type==${ConstantMapping[3]} then Cons=gString();end;Consts[Idx]=Cons;end;Chunk[2]=Consts;end;do for Idx=1,gBits32() do local Data1=BitXOR(gBits32(),${IXorKey1});local Data2=BitXOR(gBits32(),${IXorKey2});local Type=gBit(Data1,1,2);local Opco=gBit(Data2,1,11);local Inst={Opco,gBit(Data1,3,11),nil,nil,Data2};if Type==0 then Inst[OP_B]=gBit(Data1,12,20);Inst[OP_C]=gBit(Data1,21,29);elseif Type==1 then Inst[OP_B]=gBit(Data2,12,33);elseif Type==2 then Inst[OP_B]=gBit(Data2,12,32)-1048575;elseif Type==3 then Inst[OP_B]=gBit(Data2,12,32)-1048575;Inst[OP_C]=gBit(Data1,21,29);end;Chunk[1][Idx]=Inst;end;end;do for Idx=1,gBits32() do Chunk[3][Idx]=Deserialize();end;end;`);
 
   // Outer shell (VMP2)
   vmParts.push(VMP2);
@@ -1600,8 +1607,8 @@ function buildDispatchTree(OpcodeId, r){
     case 'GT':       return `if(Stk[Inst[OP_B]]>Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
     case 'GE':       return `if(Stk[Inst[OP_B]]>=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
     case 'NOT':      return `Stk[Inst[OP_A]]=not Stk[Inst[OP_B]];`;
-    case 'JMP':      return `InstrPoint=Inst[OP_BX]-1;`;
-    case 'JMPIF':    return `if not Stk[Inst[OP_A]]then InstrPoint=Inst[OP_BX]-1 end;`;
+case 'JMP':      return `InstrPoint=Inst[OP_BX]-1;`;
+case 'JMPIF':    return `if not Stk[Inst[OP_A]] then InstrPoint=Inst[OP_BX]-1 end;`;
     case 'CALL':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]](unpack(Stk,Inst[OP_B]+1,Inst[OP_B]+Inst[OP_C]));`;
     case 'RETURN':   return `if Inst[OP_B]==0 then return end;return unpack(Stk,Inst[OP_A],Inst[OP_A]+Inst[OP_B]-1);`;
     case 'CLOSURE':  return `Stk[Inst[OP_A]]=Wrap(Proto[Inst[OP_BX]],{},Env);`;
