@@ -466,121 +466,11 @@ compile(source){
   }
 
   /* ---------- compile NAME, NAME(...), NAME.field, NAME[key] ---------- */
-  compileNameExpr(sig, start, end, forcedReg){
-    const name = sig[start].v;
+compileNameExpr(sig, start, end, forcedReg){
+  const name = sig[start].v;
 
-    // Bare name
-    if(start + 1 >= end){
-      const target = forcedReg !== undefined ? forcedReg : this.alloc();
-      const localReg = this.lookup(name);
-      if(localReg !== null){
-        this.emit({op:'MOVE', a:target, b:localReg});
-      }else{
-        this.emit({op:'GETG', a:target, k:this.addStr(name)});
-      }
-      return target;
-    }
-
-    // Field access: NAME . field
-    if(sig[start+1].k === 'op' && sig[start+1].v === '.'){
-      // Chain of fields
-      let j = start;
-      let target = forcedReg !== undefined ? forcedReg : this.alloc();
-      // Load base (name)
-      const baseReg = this.lookup(name);
-      if(baseReg !== null){
-        this.emit({op:'MOVE', a:target, b:baseReg});
-      }else{
-        this.emit({op:'GETG', a:target, k:this.addStr(name)});
-      }
-      j = start + 1;
-      while(j < end && sig[j].k === 'op' && sig[j].v === '.' && j + 1 < end){
-        const fieldName = sig[j+1].v;
-        const fieldKeyReg = this.alloc();
-        this.emit({op:'LOADK', a:fieldKeyReg, k:this.addStr(fieldName)});
-        this.emit({op:'GETT', a:target, b:target, c:fieldKeyReg});
-        this.free(fieldKeyReg);
-        j += 2;
-      }
-      return target;
-    }
-
-    // Index access: NAME [ expr ]
-    if(sig[start+1].k === 'op' && sig[start+1].v === '['){
-      let depth = 0, closeIdx = -1;
-      for(let j = start+1; j < end; j++){
-        if(sig[j].v === '[') depth++;
-        else if(sig[j].v === ']'){ depth--; if(depth === 0){ closeIdx = j; break; } }
-      }
-      if(closeIdx !== -1){
-        const target = forcedReg !== undefined ? forcedReg : this.alloc();
-        const baseReg = this.lookup(name);
-        if(baseReg !== null){
-          this.emit({op:'MOVE', a:target, b:baseReg});
-        }else{
-          this.emit({op:'GETG', a:target, k:this.addStr(name)});
-        }
-        const keyReg = this.compileExpr(sig, start + 2, closeIdx);
-        this.emit({op:'GETT', a:target, b:target, c:keyReg});
-        this.free(keyReg);
-        // Continue chain after ]
-        let j = closeIdx + 1;
-        while(j < end){
-          if(sig[j].k === 'op' && sig[j].v === '.' && j + 1 < end){
-            const fieldName = sig[j+1].v;
-            const fReg = this.alloc();
-            this.emit({op:'LOADK', a:fReg, k:this.addStr(fieldName)});
-            this.emit({op:'GETT', a:target, b:target, c:fReg});
-            this.free(fReg);
-            j += 2;
-          }else if(sig[j].k === 'op' && sig[j].v === '['){
-            let d2 = 0, ci2 = -1;
-            for(let k = j; k < end; k++){
-              if(sig[k].v === '[') d2++;
-              else if(sig[k].v === ']'){ d2--; if(d2 === 0){ ci2 = k; break; } }
-            }
-            if(ci2 === -1) break;
-            const kReg = this.compileExpr(sig, j + 1, ci2);
-            this.emit({op:'GETT', a:target, b:target, c:kReg});
-            this.free(kReg);
-            j = ci2 + 1;
-          }else break;
-        }
-        return target;
-      }
-    }
-
-    // Function call: NAME ( args )
-    if(sig[start+1].k === 'op' && sig[start+1].v === '('){
-      let depth = 0, closeIdx = -1;
-      for(let j = start+1; j < end; j++){
-        if(sig[j].v === '(') depth++;
-        else if(sig[j].v === ')'){ depth--; if(depth === 0){ closeIdx = j; break; } }
-      }
-      if(closeIdx !== -1){
-// Load function
-const fnReg = this.alloc();
-const localReg = this.lookup(name);
-if(localReg !== null){
-  this.emit({op:'MOVE', a:fnReg, b:localReg});
-}else{
-  this.emit({op:'GETG', a:fnReg, k:this.addStr(name)});
-}
-// Load args into CONSECUTIVE registers right after fnReg
-const argStart = start + 2;
-const args = this.splitArgs(sig, argStart, closeIdx);
-for(const [aStart, aEnd] of args){
-  this.compileExpr(sig, aStart, aEnd); // allocs next reg automatically
-}
-// Emit CALL
-const target = forcedReg !== undefined ? forcedReg : this.alloc();
-this.emit({op:'CALL', a:target, b:fnReg, c:args.length});
-this.regTop = fnReg; // free fn and args
-return target;
-      }
-    }
-
-    // Fallback: bare name
+  // Bare name
+  if(start + 1 >= end){
     const target = forcedReg !== undefined ? forcedReg : this.alloc();
     const localReg = this.lookup(name);
     if(localReg !== null){
@@ -590,6 +480,116 @@ return target;
     }
     return target;
   }
+
+  // Field access: NAME . field
+  if(sig[start+1].k === 'op' && sig[start+1].v === '.'){
+    let j = start;
+    let target = forcedReg !== undefined ? forcedReg : this.alloc();
+    const baseReg = this.lookup(name);
+    if(baseReg !== null){
+      this.emit({op:'MOVE', a:target, b:baseReg});
+    }else{
+      this.emit({op:'GETG', a:target, k:this.addStr(name)});
+    }
+    j = start + 1;
+    while(j < end && sig[j].k === 'op' && sig[j].v === '.' && j + 1 < end){
+      const fieldName = sig[j+1].v;
+      const fieldKeyReg = this.alloc();
+      this.emit({op:'LOADK', a:fieldKeyReg, k:this.addStr(fieldName)});
+      this.emit({op:'GETT', a:target, b:target, c:fieldKeyReg});
+      this.free(fieldKeyReg);
+      j += 2;
+    }
+    return target;
+  }
+
+  // Index access: NAME [ expr ]
+  if(sig[start+1].k === 'op' && sig[start+1].v === '['){
+    let depth = 0, closeIdx = -1;
+    for(let j = start+1; j < end; j++){
+      if(sig[j].v === '[') depth++;
+      else if(sig[j].v === ']'){ depth--; if(depth === 0){ closeIdx = j; break; } }
+    }
+    if(closeIdx !== -1){
+      const target = forcedReg !== undefined ? forcedReg : this.alloc();
+      const baseReg = this.lookup(name);
+      if(baseReg !== null){
+        this.emit({op:'MOVE', a:target, b:baseReg});
+      }else{
+        this.emit({op:'GETG', a:target, k:this.addStr(name)});
+      }
+      const keyReg = this.compileExpr(sig, start + 2, closeIdx);
+      this.emit({op:'GETT', a:target, b:target, c:keyReg});
+      this.free(keyReg);
+      let j = closeIdx + 1;
+      while(j < end){
+        if(sig[j].k === 'op' && sig[j].v === '.' && j + 1 < end){
+          const fieldName = sig[j+1].v;
+          const fReg = this.alloc();
+          this.emit({op:'LOADK', a:fReg, k:this.addStr(fieldName)});
+          this.emit({op:'GETT', a:target, b:target, c:fReg});
+          this.free(fReg);
+          j += 2;
+        }else if(sig[j].k === 'op' && sig[j].v === '['){
+          let d2 = 0, ci2 = -1;
+          for(let k = j; k < end; k++){
+            if(sig[k].v === '[') d2++;
+            else if(sig[k].v === ']'){ d2--; if(d2 === 0){ ci2 = k; break; } }
+          }
+          if(ci2 === -1) break;
+          const kReg = this.compileExpr(sig, j + 1, ci2);
+          this.emit({op:'GETT', a:target, b:target, c:kReg});
+          this.free(kReg);
+          j = ci2 + 1;
+        }else break;
+      }
+      return target;
+    }
+  }
+
+  // Function call: NAME ( args )
+  if(sig[start+1].k === 'op' && sig[start+1].v === '('){
+    let depth = 0, closeIdx = -1;
+    for(let j = start+1; j < end; j++){
+      if(sig[j].v === '(') depth++;
+      else if(sig[j].v === ')'){ depth--; if(depth === 0){ closeIdx = j; break; } }
+    }
+    if(closeIdx !== -1){
+      // Load function
+      const fnReg = this.alloc();
+      const localReg = this.lookup(name);
+      if(localReg !== null){
+        this.emit({op:'MOVE', a:fnReg, b:localReg});
+      }else{
+        this.emit({op:'GETG', a:fnReg, k:this.addStr(name)});
+      }
+      
+      // Load args consecutively
+      const argStart = start + 2;
+      const args = this.splitArgs(sig, argStart, closeIdx);
+      for(const [aStart, aEnd] of args){
+        this.compileExpr(sig, aStart, aEnd); // allocs next reg automatically
+      }
+      
+      // Emit CALL
+      const target = forcedReg !== undefined ? forcedReg : this.alloc();
+      this.emit({op:'CALL', a:target, b:fnReg, c:args.length});
+      
+      this.regTop = fnReg; // free fn and args
+      return target;
+    }
+  }
+
+  // Fallback: bare name
+  const target = forcedReg !== undefined ? forcedReg : this.alloc();
+  const localReg = this.lookup(name);
+  if(localReg !== null){
+    this.emit({op:'MOVE', a:target, b:localReg});
+  }else{
+    this.emit({op:'GETG', a:target, k:this.addStr(name)});
+  }
+  return target;
+}
 
   /* ---------- split args by commas at depth 0 ---------- */
   splitArgs(sig, start, end){
@@ -1377,62 +1377,47 @@ compileFunctionDef(sig, i, end, isLocal){
  *    IronBrew2's layout; XOR keys applied to opcode/const/string)
  * ============================================================ */
 function serialize(compiled, ctx){
-  const {
-    PrimaryXorKey, IXorKey1, IXorKey2,
-    ConstantMapping, ChunkSteps,
-  } = ctx;
-
+  const { PrimaryXorKey, IXorKey1, IXorKey2, ConstantMapping, ChunkSteps } = ctx;
   const w = new ByteWriter();
 
-  // ---- ParameterCount step ----
-  w.u32(compiled.paramCount);
+  // ParameterCount (XORed)
+  w.u32x(compiled.paramCount, PrimaryXorKey);
 
-  // ---- Constants step ----
-  // ConstCount (u32), then each: type (u8 XORed), value
-  w.u32(compiled.constants.length);
+  // Constants Count (XORed)
+  w.u32x(compiled.constants.length, PrimaryXorKey);
   for(const c of compiled.constants){
     if(c.type === 'nil'){
-      // Treat nil as bool false for simplicity; the VM interpreter
-      // handles undefined constants as nil.
       w.u8x(ConstantMapping[1], PrimaryXorKey);
-      w.u8x(0, PrimaryXorKey);   // false
+      w.u8x(0, PrimaryXorKey);   
     }else if(c.type === 'bool'){
       w.u8x(ConstantMapping[1], PrimaryXorKey);
       w.u8x(c.value ? 1 : 0, PrimaryXorKey);
     }else if(c.type === 'num'){
       w.u8x(ConstantMapping[2], PrimaryXorKey);
-      // float64 encoded via two u32s (matching gFloat)
       const buf = new ArrayBuffer(8);
-      new DataView(buf).setFloat64(0, c.value, true);   // LE
+      new DataView(buf).setFloat64(0, c.value, true);
       const bytes = new Uint8Array(buf);
-      // gFloat reads left u32 first, then right u32
-      // Encoding: right (exponent+sign) first, then left (mantissa)
       const left = bytes[0] | (bytes[1]<<8) | (bytes[2]<<16) | (bytes[3]<<24);
       const right = bytes[4] | (bytes[5]<<8) | (bytes[6]<<16) | (bytes[7]<<24);
       w.u32x(right >>> 0, PrimaryXorKey);
       w.u32x(left >>> 0, PrimaryXorKey);
     }else if(c.type === 'str'){
       w.u8x(ConstantMapping[3], PrimaryXorKey);
-      w.u32(c.value.length);
+      w.u32x(c.value.length, PrimaryXorKey); // <-- Fixed: XOR string length
       w.str(c.value, PrimaryXorKey);
     }
   }
 
-  // ---- Instructions step ----
-  // Count (u32), then each instruction is 3 u32s:
-  //   Data1 (type in bits 1-2, A in 3-11, B in 12-20, C in 21-29)
-  //   Data2 (opcode in bits 1-11, Bx/sBx in 12-32)
-  // plus extra if the op needs it
-  w.u32(compiled.instructions.length);
+  // Instructions Count (XORed)
+  w.u32x(compiled.instructions.length, PrimaryXorKey);
   for(const inst of compiled.instructions){
     const {data1, data2} = encodeInstruction(inst, ctx);
     w.u32x(data1 >>> 0, IXorKey1);
     w.u32x(data2 >>> 0, IXorKey2);
   }
 
-  // ---- Functions step ----
-  w.u32(compiled.functions.length);
-  // (nested function prototypes would go here — skip for now)
+  // Functions Count (XORed)
+  w.u32x(compiled.functions.length, PrimaryXorKey);
 
   return w.bytes;
 }
@@ -1607,10 +1592,10 @@ function buildDispatchTree(OpcodeId, r){
     case 'GT':       return `if(Stk[Inst[OP_B]]>Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
     case 'GE':       return `if(Stk[Inst[OP_B]]>=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
     case 'NOT':      return `Stk[Inst[OP_A]]=not Stk[Inst[OP_B]];`;
-case 'JMP':      return `InstrPoint=Inst[OP_BX]-1;`;
-case 'JMPIF':    return `if not Stk[Inst[OP_A]] then InstrPoint=Inst[OP_BX]-1 end;`;
-    case 'CALL':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]](unpack(Stk,Inst[OP_B]+1,Inst[OP_B]+Inst[OP_C]));`;
-    case 'RETURN':   return `if Inst[OP_B]==0 then return end;return unpack(Stk,Inst[OP_A],Inst[OP_A]+Inst[OP_B]-1);`;
+    case 'JMP':      return `InstrPoint=Inst[OP_BX]-1;`;
+    case 'JMPIF':    return `if not Stk[Inst[OP_A]] then InstrPoint=Inst[OP_BX]-1 end;`;
+    case 'CALL':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]](Unpack(Stk,Inst[OP_B]+1,Inst[OP_B]+Inst[OP_C]))`;
+    case 'RETURN':   return `if Inst[OP_B]==0 then return end;return Unpack(Stk,Inst[OP_A],Inst[OP_A]+Inst[OP_B]-1);`;
     case 'CLOSURE':  return `Stk[Inst[OP_A]]=Wrap(Proto[Inst[OP_BX]],{},Env);`;
     case 'NEWTBL':   return `Stk[Inst[OP_A]]={};`;
     case 'SETLIST':  return `-- setlist stub`;
