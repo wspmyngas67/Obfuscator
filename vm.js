@@ -11,10 +11,6 @@
 (function(global){
 'use strict';
 
-// Lazy accessors — resolved at call time, so load order is fine
-function tokenize(s){ return global.LuaObfuscator.tokenize(s); }
-function needsSpace(a, b){ return global.LuaObfuscator.needsSpace(a, b); }
-function unescapeLua(s){ return global.LuaObfuscator.unescapeLua(s); }
 /* ============================================================
  * 1) LZ-style dictionary compressor  (exact port of Generator.Compress)
  * ============================================================ */
@@ -1679,182 +1675,18 @@ function buildDispatchTree(OpcodeId, r){
   let body = tree(entries);
 
   // Wrap in an if that falls through when Enum doesn't match any opcode
-  return `
-if ${body} end;
-if Enum>${entries[entries.length-1][1]} then -- never
-end;
-`;
-}
+return `${body}`;
 
 /* ============================================================
  * 9) VMP1, VMP2, VMP3 templates (verbatim from IronBrew2's
  *    VMStrings.cs, with our dispatch loop preserved)
  * ============================================================ */
 
-const VMP1 = `
-local BitXOR = bit and bit.bxor or function(a,b)
-    local p,c=1,0
-    while a>0 and b>0 do
-        local ra,rb=a%2,b%2
-        if ra~=rb then c=c+p end
-        a,b,p=(a-ra)/2,(b-rb)/2,p*2
-    end
-    if a<b then a=b end
-    while a>0 do
-        local ra=a%2
-        if ra>0 then c=c+p end
-        a,p=(a-ra)/2,p*2
-    end
-    return c
-end
+const VMP1 = `local BitXOR=bit and bit.bxor or function(a,b)local p,c=1,0 while a>0 and b>0 do local ra,rb=a%2,b%2 if ra~=rb then c=c+p end a,b,p=(a-ra)/2,(b-rb)/2,p*2 end if a<b then a=b end while a>0 do local ra=a%2 if ra>0 then c=c+p end a,p=(a-ra)/2,p*2 end return c end local function gBit(Bit,Start,End)if End then local Res=(Bit/2^(Start-1))%2^((End-1)-(Start-1)+1)return Res-Res%1 else local Plc=2^(Start-1)return(Bit%(Plc+Plc)>=Plc)and 1 or 0 end end local Pos=1 local function gBits32()local W,X,Y,Z=Byte(ByteString,Pos,Pos+3)W=BitXOR(W,XOR_KEY)X=BitXOR(X,XOR_KEY)Y=BitXOR(Y,XOR_KEY)Z=BitXOR(Z,XOR_KEY)Pos=Pos+4 return(Z*16777216)+(Y*65536)+(X*256)+W end local function gBits8()local F=BitXOR(Byte(ByteString,Pos,Pos),XOR_KEY)Pos=Pos+1 return F end local function gFloat()local Left=gBits32()local Right=gBits32()local IsNormal=1 local Mantissa=(gBit(Right,1,20)*2^32)+Left local Exponent=gBit(Right,21,31)local Sign=(-1)^gBit(Right,32)if Exponent==0 then if Mantissa==0 then return Sign*0 else Exponent=1 IsNormal=0 end elseif Exponent==2047 then return(Mantissa==0)and(Sign*(1/0))or(Sign*(0/0))end return LDExp(Sign,Exponent-1023)*(IsNormal+(Mantissa/2^52))end local gSizet=gBits32 local function gString(Len)local Str if not Len then Len=gSizet()if Len==0 then return''end end Str=Sub(ByteString,Pos,Pos+Len-1)Pos=Pos+Len local FStr={}for Idx=1,#Str do FStr[Idx]=Char(BitXOR(Byte(Sub(Str,Idx,Idx)),XOR_KEY))end return Concat(FStr)end local gInt=gBits32 local function _R(...)return{...},Select('#',...)end local function Deserialize()local Instrs={}local Functions={}local Lines={}local Chunk={Instrs,nil,Functions,nil,Lines}return Chunk end local Byte=string.byte local Char=string.char local Sub=string.sub local Concat=table.concat local LDExp=math.ldexp local GetFEnv=getfenv or function()return _ENV end local Setmetatable=setmetatable local Select=select local Unpack=unpack or table.unpack local ToNumber=tonumber local function decompress(b)local c,d,e="","",{}local f=256 local g={}for h=0,f-1 do g[h]=Char(h)end local i=1 local function k()local l=ToNumber(Sub(b,i,i),36)i=i+1 local m=ToNumber(Sub(b,i,i+l-1),36)i=i+l return m end c=Char(k())e[1]=c while i<#b do local n=k()if g[n]then d=g[n]else d=c..Sub(c,1,1)end g[f]=c..Sub(d,1,1)e[#e+1],c,f=d,d,f+1 end return Concat(e)end `;
 
-local function gBit(Bit, Start, End)
-    if End then
-        local Res = (Bit / 2 ^ (Start - 1)) % 2 ^ ((End - 1) - (Start - 1) + 1);
-        return Res - Res % 1;
-    else
-        local Plc = 2 ^ (Start - 1);
-        return (Bit % (Plc + Plc) >= Plc) and 1 or 0;
-    end;
-end;
+const VMP2 = `local function Wrap(Chunk,Upvalues,Env)local Instr=Chunk[1]local Const=Chunk[2]local Proto=Chunk[3]local Params=Chunk[4]return function(...)local Instr=Instr local Const=Const local Proto=Proto local Params=Params local _R=_R local InstrPoint=1 local Top=-1 local Vararg={}local Args={...}local PCount=Select('#',...)-1 local Lupvals={}local Stk={}for Idx=0,PCount do if Idx>=Params then Vararg[Idx-Params]=Args[Idx+1]else Stk[Idx]=Args[Idx+1]end end local Varargsz=PCount-Params+1 local Inst local Enum while true do Inst=Instr[InstrPoint]Enum=Inst[OP_ENUM]`;
 
-local Pos = 1;
-
-local function gBits32()
-    local W, X, Y, Z = Byte(ByteString, Pos, Pos + 3);
-    W = BitXOR(W, XOR_KEY)
-    X = BitXOR(X, XOR_KEY)
-    Y = BitXOR(Y, XOR_KEY)
-    Z = BitXOR(Z, XOR_KEY)
-    Pos = Pos + 4;
-    return (Z*16777216) + (Y*65536) + (X*256) + W;
-end;
-
-local function gBits8()
-    local F = BitXOR(Byte(ByteString, Pos, Pos), XOR_KEY);
-    Pos = Pos + 1;
-    return F;
-end;
-
-local function gFloat()
-    local Left = gBits32();
-    local Right = gBits32();
-    local IsNormal = 1;
-    local Mantissa = (gBit(Right, 1, 20) * (2 ^ 32)) + Left;
-    local Exponent = gBit(Right, 21, 31);
-    local Sign = ((-1) ^ gBit(Right, 32));
-    if (Exponent == 0) then
-        if (Mantissa == 0) then
-            return Sign * 0;
-        else
-            Exponent = 1;
-            IsNormal = 0;
-        end;
-    elseif (Exponent == 2047) then
-        return (Mantissa == 0) and (Sign * (1 / 0)) or (Sign * (0 / 0));
-    end;
-    return LDExp(Sign, Exponent - 1023) * (IsNormal + (Mantissa / (2 ^ 52)));
-end;
-
-local gSizet = gBits32;
-local function gString(Len)
-    local Str;
-    if (not Len) then
-        Len = gSizet();
-        if (Len == 0) then
-            return '';
-        end;
-    end;
-    Str = Sub(ByteString, Pos, Pos + Len - 1);
-    Pos = Pos + Len;
-    local FStr = {}
-    for Idx = 1, #Str do
-        FStr[Idx] = Char(BitXOR(Byte(Sub(Str, Idx, Idx)), XOR_KEY))
-    end
-    return Concat(FStr);
-end;
-
-local gInt = gBits32;
-local function _R(...) return {...}, Select('#', ...) end
-
-local function Deserialize()
-    local Instrs = {};
-    local Functions = {};
-    local Lines = {};
-    local Chunk = 
-    {
-        Instrs,
-        nil,
-        Functions,
-        nil,
-        Lines
-    };
-    return Chunk;
-end;
-
-local Byte = string.byte;
-local Char = string.char;
-local Sub = string.sub;
-local Concat = table.concat;
-local LDExp = math.ldexp;
-local GetFEnv = getfenv or function() return _ENV end;
-local Setmetatable = setmetatable;
-local Select = select;
-local Unpack = unpack;
-local ToNumber = tonumber;
-
-local function decompress(b)local c,d,e="","",{}local f=256;local g={}for h=0,f-1 do g[h]=Char(h)end;local i=1;local function k()local l=ToNumber(Sub(b, i,i),36)i=i+1;local m=ToNumber(Sub(b, i,i+l-1),36)i=i+l;return m end;c=Char(k())e[1]=c;while i<#b do local n=k()if g[n]then d=g[n]else d=c..Sub(c, 1,1)end;g[f]=c..Sub(d, 1,1)e[#e+1],c,f=d,d,f+1 end;return Concat(e)end;
-`;
-
-const VMP2 = `
-local function Wrap(Chunk, Upvalues, Env)
-    local Instr  = Chunk[1];
-    local Const  = Chunk[2];
-    local Proto  = Chunk[3];
-    local Params = Chunk[4];
-
-    return function(...)
-        local Instr  = Instr; 
-        local Const  = Const; 
-        local Proto  = Proto; 
-        local Params = Params;
-
-        local _R = _R
-        local InstrPoint = 1;
-        local Top = -1;
-
-        local Vararg = {};
-        local Args  = {...};
-
-        local PCount = Select('#', ...) - 1;
-
-        local Lupvals = {};
-        local Stk = {};
-
-        for Idx = 0, PCount do
-            if (Idx >= Params) then
-                Vararg[Idx - Params] = Args[Idx + 1];
-            else
-                Stk[Idx] = Args[Idx + 1];
-            end;
-        end;
-
-        local Varargsz = PCount - Params + 1
-
-        local Inst;
-        local Enum; 
-
-        while true do
-            Inst = Instr[InstrPoint];
-            Enum = Inst[OP_ENUM];
-`;
-
-const VMP3 = `
-            InstrPoint = InstrPoint + 1;
-        end;
-    end;
-end;    
-return Wrap(Deserialize(), {}, GetFEnv())();
+const VMP3 = ` InstrPoint=InstrPoint+1 end end end return Wrap(Deserialize(),{},GetFEnv())()`;
 `;
 
 /* ============================================================
