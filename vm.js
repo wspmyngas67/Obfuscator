@@ -1539,47 +1539,7 @@ function generate(source, r, opts){
   vmParts.push(`local ByteString=decompress('${encoded}');\n`);
 
   // Chunk steps (ParameterCount / Constants / Instructions / Functions)
-  vmParts.push(`
-local Chunk = Deserialize();
-do
-  local PCount = gBits32();
-  Chunk[4] = PCount;
-end;
-do
-  local ConstCount = gBits32();
-  local Consts = {};
-  for Idx=1,ConstCount do
-    local Type=gBits8();
-    local Cons;
-    if(Type==${ConstantMapping[1]}) then Cons=(gBits8() ~= 0);
-    elseif(Type==${ConstantMapping[2]}) then Cons = gFloat();
-    elseif(Type==${ConstantMapping[3]}) then Cons=gString();
-    end;
-    Consts[Idx]=Cons;
-  end;
-  Chunk[2] = Consts;
-end;
-do
-  for Idx=1,gBits32() do
-    local Data1=BitXOR(gBits32(),${IXorKey1});
-    local Data2=BitXOR(gBits32(),${IXorKey2});
-    local Type=gBit(Data1,1,2);
-    local Opco=gBit(Data2,1,11);
-    local Inst={Opco, gBit(Data1,3,11), nil, nil, Data2};
-    if (Type == 0) then Inst[OP_B]=gBit(Data1,12,20);Inst[OP_C]=gBit(Data1,21,29);
-    elseif(Type==1) then Inst[OP_B]=gBit(Data2,12,33);
-    elseif(Type==2) then Inst[OP_B]=gBit(Data2,12,32)-1048575;
-    elseif(Type==3) then Inst[OP_B]=gBit(Data2,12,32)-1048575;Inst[OP_C]=gBit(Data1,21,29);
-    end;
-    Chunk[1][Idx]=Inst;
-  end;
-end;
-do
-  for Idx=1,gBits32() do
-    Chunk[3][Idx-1]=Deserialize();
-  end;
-end;
-`);
+  vmParts.push(`local Chunk=Deserialize();do local PCount=gBits32();Chunk[4]=PCount;end;do local ConstCount=gBits32();local Consts={};for Idx=1,ConstCount do local Type=gBits8();local Cons;if Type==${ConstantMapping[1]} then Cons=(gBits8()~=0);elseif Type==${ConstantMapping[2]} then Cons=gFloat();elseif Type==${ConstantMapping[3]} then Cons=gString();end;Consts[Idx]=Cons;end;Chunk[2]=Consts;end;do for Idx=1,gBits32() do local Data1=BitXOR(gBits32(),${IXorKey1});local Data2=BitXOR(gBits32(),${IXorKey2});local Type=gBit(Data1,1,2);local Opco=gBit(Data2,1,11);local Inst={Opco,gBit(Data1,3,11),nil,nil,Data2};if Type==0 then Inst[OP_B]=gBit(Data1,12,20);Inst[OP_C]=gBit(Data1,21,29);elseif Type==1 then Inst[OP_B]=gBit(Data2,12,33);elseif Type==2 then Inst[OP_B]=gBit(Data2,12,32)-1048575;elseif Type==3 then Inst[OP_B]=gBit(Data2,12,32)-1048575;Inst[OP_C]=gBit(Data1,21,29);end;Chunk[1][Idx]=Inst;end;end;do for Idx=1,gBits32() do Chunk[3][Idx-1]=Deserialize();end;end;`);
 
   // Outer shell (VMP2)
   vmParts.push(VMP2);
@@ -1593,13 +1553,13 @@ end;
 
   // ---- Placeholder substitutions ----
   let vm = vmParts.join('');
-  vm = vm.replace(/XOR_KEY/g, String(PrimaryXorKey));
-  vm = vm.replace(/OP_ENUM/g, '1');
-  vm = vm.replace(/OP_A/g, '2');
-  vm = vm.replace(/OP_B/g, '3');
-  vm = vm.replace(/OP_BX/g, '4');
-  vm = vm.replace(/OP_C/g, '5');
-  vm = vm.replace(/OP_DATA/g, '6');
+vm = vm.replace(/XOR_KEY/g, String(PrimaryXorKey));
+vm = vm.replace(/OP_ENUM/g, '1');
+vm = vm.replace(/OP_A/g, '2');
+vm = vm.replace(/OP_BX/g, '4');
+vm = vm.replace(/OP_B/g, '3');
+vm = vm.replace(/OP_C/g, '5');
+vm = vm.replace(/OP_DATA/g, '6');
   // INSTR_CNT / FUNC_CNT placeholders (empty initial tables)
   vm = vm.replace(/INSTR_CNT/g, '0');
   vm = vm.replace(/FUNC_CNT/g, '0');
@@ -1619,40 +1579,40 @@ function buildDispatchTree(OpcodeId, r){
 
   // Emit interpreter for each opcode (Part 2 will fill in bodies)
   const bodyFor = name => {
-    switch(name){
-      case 'LOADK':    return `Stk[Inst[OP_A]]=Const[Inst[OP_BX]];`;
-      case 'MOVE':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]];`;
-      case 'GETG':     return `Stk[Inst[OP_A]]=Env[Const[Inst[OP_BX]]];`;
-      case 'SETG':     return `Env[Const[Inst[OP_BX]]]=Stk[Inst[OP_A]];`;
-      case 'GETT':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]][Stk[Inst[OP_C]]];`;
-      case 'SETT':     return `Stk[Inst[OP_B]][Stk[Inst[OP_C]]]=Stk[Inst[OP_A]];`;
-      case 'ADD':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]+Stk[Inst[OP_C]];`;
-      case 'SUB':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]-Stk[Inst[OP_C]];`;
-      case 'MUL':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]*Stk[Inst[OP_C]];`;
-      case 'DIV':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]/Stk[Inst[OP_C]];`;
-      case 'MOD':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]%Stk[Inst[OP_C]];`;
-      case 'POW':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]^Stk[Inst[OP_C]];`;
-      case 'CONCAT':   return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]..Stk[Inst[OP_C]];`;
-      case 'EQ':       return `if (Stk[Inst[OP_B]]==Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'NE':       return `if (Stk[Inst[OP_B]]~=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'LT':       return `if (Stk[Inst[OP_B]]<Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'LE':       return `if (Stk[Inst[OP_B]]<=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'GT':       return `if (Stk[Inst[OP_B]]>Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'GE':       return `if (Stk[Inst[OP_B]]>=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0) then InstrPoint=InstrPoint+1 end;`;
-      case 'NOT':      return `Stk[Inst[OP_A]]=not Stk[Inst[OP_B]];`;
-      case 'JMP':      return `InstrPoint=Inst[OP_BX];`;
-      case 'JMPIF':    return `if Stk[Inst[OP_A]] then InstrPoint=Inst[OP_BX];end;`;
-      case 'CALL':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]](unpack(Stk, Inst[OP_B]+1, Inst[OP_B]+Inst[OP_C]));`;
-      case 'RETURN':   return `if Inst[OP_B]==0 then return;end;return unpack(Stk, Inst[OP_A], Inst[OP_A]+Inst[OP_B]-1);`;
-      case 'CLOSURE':  return `Stk[Inst[OP_A]]=Wrap(Proto[Inst[OP_BX]], {}, Env);`;
-      case 'NEWTBL':   return `Stk[Inst[OP_A]]={};`;
-      case 'SETLIST':  return `-- setlist stub`;
-      case 'FORPREP':  return `InstrPoint=Inst[OP_BX];`;
-      case 'FORLOOP':  return `Stk[Inst[OP_A]]=Stk[Inst[OP_A]]+Stk[Inst[OP_A]+2];if Stk[Inst[OP_A]]<=Stk[Inst[OP_A]+1]then InstrPoint=Inst[OP_BX];end;`;
-      case 'SETTOP':   return `Top=Inst[OP_A];`;
-      default:         return '-- unknown opcode';
-    }
-  };
+  switch(name){
+    case 'LOADK':    return `Stk[Inst[OP_A]]=Const[Inst[OP_BX]];`;
+    case 'MOVE':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]];`;
+    case 'GETG':     return `Stk[Inst[OP_A]]=Env[Const[Inst[OP_BX]]];`;
+    case 'SETG':     return `Env[Const[Inst[OP_BX]]]=Stk[Inst[OP_A]];`;
+    case 'GETT':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]][Stk[Inst[OP_C]]];`;
+    case 'SETT':     return `Stk[Inst[OP_B]][Stk[Inst[OP_C]]]=Stk[Inst[OP_A]];`;
+    case 'ADD':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]+Stk[Inst[OP_C]];`;
+    case 'SUB':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]-Stk[Inst[OP_C]];`;
+    case 'MUL':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]*Stk[Inst[OP_C]];`;
+    case 'DIV':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]/Stk[Inst[OP_C]];`;
+    case 'MOD':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]%Stk[Inst[OP_C]];`;
+    case 'POW':      return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]^Stk[Inst[OP_C]];`;
+    case 'CONCAT':   return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]]..Stk[Inst[OP_C]];`;
+    case 'EQ':       return `if(Stk[Inst[OP_B]]==Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'NE':       return `if(Stk[Inst[OP_B]]~=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'LT':       return `if(Stk[Inst[OP_B]]<Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'LE':       return `if(Stk[Inst[OP_B]]<=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'GT':       return `if(Stk[Inst[OP_B]]>Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'GE':       return `if(Stk[Inst[OP_B]]>=Stk[Inst[OP_C]])~=(Inst[OP_A]~=0)then InstrPoint=InstrPoint+1 end;`;
+    case 'NOT':      return `Stk[Inst[OP_A]]=not Stk[Inst[OP_B]];`;
+    case 'JMP':      return `InstrPoint=Inst[OP_BX]-1;`;
+    case 'JMPIF':    return `if not Stk[Inst[OP_A]]then InstrPoint=Inst[OP_BX]-1 end;`;
+    case 'CALL':     return `Stk[Inst[OP_A]]=Stk[Inst[OP_B]](unpack(Stk,Inst[OP_B]+1,Inst[OP_B]+Inst[OP_C]));`;
+    case 'RETURN':   return `if Inst[OP_B]==0 then return end;return unpack(Stk,Inst[OP_A],Inst[OP_A]+Inst[OP_B]-1);`;
+    case 'CLOSURE':  return `Stk[Inst[OP_A]]=Wrap(Proto[Inst[OP_BX]],{},Env);`;
+    case 'NEWTBL':   return `Stk[Inst[OP_A]]={};`;
+    case 'SETLIST':  return `-- setlist stub`;
+    case 'FORPREP':  return `local s=Stk[Inst[OP_A]+2]or 1;if(s>0 and Stk[Inst[OP_A]]>Stk[Inst[OP_A]+1])or(s<0 and Stk[Inst[OP_A]]<Stk[Inst[OP_A]+1])then InstrPoint=Inst[OP_BX]-1 end;`;
+    case 'FORLOOP':  return `local s=Stk[Inst[OP_A]+2]or 1;Stk[Inst[OP_A]]=Stk[Inst[OP_A]]+s;if(s>0 and Stk[Inst[OP_A]]<=Stk[Inst[OP_A]+1])or(s<0 and Stk[Inst[OP_A]]>=Stk[Inst[OP_A]+1])then InstrPoint=Inst[OP_BX]-1 end;`;
+    case 'SETTOP':   return `Top=Inst[OP_A];`;
+    default:         return '';
+  }
+};
 
   // Build binary dispatch tree
   function tree(entries){
